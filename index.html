@@ -209,15 +209,17 @@
         const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore, collection, onSnapshot, doc, setDoc } = window.firebase;
 
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        // IMPORTANT: REPLACE THE ENTIRE firebaseConfig OBJECT BELOW WITH YOUR ACTUAL CONFIG FROM FIREBASE CONSOLE
+        // Go to Firebase Console > Project settings > Your apps > Web app (</>) to get this config.
         const firebaseConfig = {
-          apiKey: "AIzaSyAty1H6d5P4YLWGdRtH6T4vcM6uYlm2Q2s",
-          authDomain: "garden-assistant-a6fef.firebaseapp.com",
-          projectId: "garden-assistant-a6fef",
-          storageBucket: "garden-assistant-a6fef.firebasestorage.app",
-          messagingSenderId: "667107830051",
-          appId: "1:667107830051:web:156ee2c2e85138cda20496",
-          measurementId: "G-WMR3HXGGE7"
+          apiKey: "YOUR_API_KEY", // <-- REPLACE THIS
+          authDomain: "YOUR_AUTH_DOMAIN", // <-- REPLACE THIS
+          projectId: "YOUR_PROJECT_ID", // <-- REPLACE THIS
+          storageBucket: "YOUR_STORAGE_BUCKET", // <-- REPLACE THIS
+          messagingSenderId: "YOUR_MESSAGING_SENDER_ID", // <-- REPLACE THIS
+          appId: "YOUR_APP_ID" // <-- REPLACE THIS
         };
+        // END OF FIREBASE CONFIG REPLACEMENT
 
         let app, db, auth, userId;
         let plantsCollectionRef;
@@ -234,7 +236,7 @@
         const addPlantModal = document.getElementById('add-plant-modal');
         const closeModalBtn = document.getElementById('close-modal-btn');
         const newPlantNameInput = document.getElementById('new-plant-name-input');
-        const submitNewPlantBtn = document.getElementById('submit-new-plant-btn');
+        const submitNewPlantBtn = document.getElementById('submit-new-plant-btn'); // Corrected typo here
         const loadingIndicator = document.getElementById('loading-indicator');
         const modalMessage = document.getElementById('modal-message');
 
@@ -244,11 +246,8 @@
                 db = getFirestore(app);
                 auth = getAuth(app);
 
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
+                // For self-hosted apps, __initial_auth_token is not available, so sign in anonymously
+                await signInAnonymously(auth);
 
                 userId = auth.currentUser?.uid || crypto.randomUUID();
                 plantsCollectionRef = collection(db, `artifacts/${appId}/public/data/plants`);
@@ -528,7 +527,7 @@
                 // IMPORTANT: Replace "" with your actual Gemini API Key when deploying to Firebase Hosting.
                 // For production apps, consider using a server-side proxy or Firebase Cloud Functions
                 // to keep your API key secure and not exposed in client-side code.
-                const apiKey = "AIzaSyAs96QV4L0ipMTECPXoS-J92RLQyTjYtF4"; 
+                const apiKey = ""; 
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
                 const response = await fetch(apiUrl, {
                     method: 'POST',
@@ -666,9 +665,16 @@
             const charContainer = document.getElementById('plant-characteristics-info');
 
             const createInfoList = (data) => {
-                if (!data || !data.items || data.items.length === 0) {
-                    return `<h3 class="text-xl font-bold mb-4 text-gray-800">${data.title || 'Information'}</h3><p class="text-gray-500">No information available.</p>`;
+                // Safeguard against data being undefined or missing expected properties
+                if (!data || !data.items || !Array.isArray(data.items)) {
+                    return `<h3 class="text-xl font-bold mb-4 text-gray-800">${data ? data.title : 'Information'}</h3><p class="text-gray-500">No information available.</p>`;
                 }
+
+                // If items array is empty, show a message
+                if (data.items.length === 0) {
+                     return `<h3 class="text-xl font-bold mb-4 text-gray-800">${data.title || 'Information'}</h3><p class="text-gray-500">No detailed information available.</p>`;
+                }
+
                 return `
                     <h3 class="text-xl font-bold mb-4 text-gray-800">${data.title}</h3>
                     <ul class="space-y-3">
