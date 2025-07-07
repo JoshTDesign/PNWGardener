@@ -209,7 +209,15 @@
         const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore, collection, onSnapshot, doc, setDoc } = window.firebase;
 
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const firebaseConfig = {
+          apiKey: "AIzaSyAty1H6d5P4YLWGdRtH6T4vcM6uYlm2Q2s",
+          authDomain: "garden-assistant-a6fef.firebaseapp.com",
+          projectId: "garden-assistant-a6fef",
+          storageBucket: "garden-assistant-a6fef.firebasestorage.app",
+          messagingSenderId: "667107830051",
+          appId: "1:667107830051:web:156ee2c2e85138cda20496",
+          measurementId: "G-WMR3HXGGE7"
+        };
 
         let app, db, auth, userId;
         let plantsCollectionRef;
