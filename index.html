@@ -302,8 +302,8 @@
             seasonButtons.forEach(button => {
                 button.addEventListener('click', () => {
                     const season = button.dataset.season;
-                    if (plantData[currentPlantName]) {
-                        updateActiveSeason(season, plantData[currentPlantName].seasonalTasks);
+                    if (allPlantsData[currentPlantName]) { // Use allPlantsData instead of plantData
+                        updateActiveSeason(season, allPlantsData[currentPlantName].seasonalTasks);
                     }
                 });
             });
@@ -517,27 +517,38 @@
                         }
                     }
                 };
-                const apiKey = "";
+                // IMPORTANT: Replace "" with your actual Gemini API Key when deploying to Firebase Hosting.
+                // For production apps, consider using a server-side proxy or Firebase Cloud Functions
+                // to keep your API key secure and not exposed in client-side code.
+                const apiKey = "AIzaSyBB4SSSJFhylFb4EXsKPVn3SDlQzAwO0Tg"; 
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
                 const response = await fetch(apiUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`API request failed with status ${response.status}: ${errorText}`);
+                }
+
                 const result = await response.json();
 
                 if (result.candidates && result.candidates.length > 0 &&
                     result.candidates[0].content && result.candidates[0].content.parts &&
                     result.candidates[0].content.parts.length > 0) {
                     const jsonString = result.candidates[0].content.parts[0].text;
+                    console.log('Raw AI response:', jsonString); // For debugging
                     const parsedData = JSON.parse(jsonString);
+                    console.log('Parsed AI data:', parsedData); // For debugging
                     return parsedData;
                 } else {
-                    throw new Error("No valid content received from AI.");
+                    throw new Error("No valid content received from AI. Response structure unexpected.");
                 }
             } catch (error) {
                 console.error("AI fetch error:", error);
-                throw new Error("Could not fetch plant information. Please try a different plant name or check your network.");
+                throw new Error(`Could not fetch plant information: ${error.message}. Please try a different plant name or check your network.`);
             }
         }
 
@@ -732,28 +743,5 @@
 
         setupUI();
     </script>
-    <script type="module">
-  // Import the functions you need from the SDKs you need
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
-  import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-analytics.js";
-  // TODO: Add SDKs for Firebase products that you want to use
-  // https://firebase.google.com/docs/web/setup#available-libraries
-
-  // Your web app's Firebase configuration
-  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
-  const firebaseConfig = {
-    apiKey: "AIzaSyAty1H6d5P4YLWGdRtH6T4vcM6uYlm2Q2s",
-    authDomain: "garden-assistant-a6fef.firebaseapp.com",
-    projectId: "garden-assistant-a6fef",
-    storageBucket: "garden-assistant-a6fef.firebasestorage.app",
-    messagingSenderId: "667107830051",
-    appId: "1:667107830051:web:156ee2c2e85138cda20496",
-    measurementId: "G-WMR3HXGGE7"
-  };
-
-  // Initialize Firebase
-  const app = initializeApp(firebaseConfig);
-  const analytics = getAnalytics(app);
-</script>
 </body>
 </html>
