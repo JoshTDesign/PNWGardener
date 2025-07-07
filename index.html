@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pacific Northwest Gardening Guide</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, onSnapshot, doc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global Firebase variables accessible to other scripts
+        window.firebase = { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore, collection, onSnapshot, doc, setDoc };
+    </script>
+
+    <!-- Chosen Palette: Strawberry Patch -->
+    <!-- Application Structure Plan: The SPA now features a two-tier navigation. The top tier is a plant selection dropdown, allowing users to switch between different plants they are growing. A new 'Add New Plant' button triggers a modal for user input. The second tier retains the tab-based structure ('Seasonal Tasks', 'Care Essentials', 'Plant Overview'), but now these tabs dynamically display information relevant to the currently selected plant. The 'Seasonal Tasks' tab remains the default view and intelligently opens to the current season, providing immediate, context-specific advice. This hierarchical structure is highly intuitive for managing multiple plant profiles, making it easy to add new plants and access their specific care guides, with data persistence via Firestore. -->
+    <!-- Visualization & Content Choices: Report Info: Plant-specific seasonal workload -> Goal: Show at-a-glance effort across the year for the selected plant -> Viz: Horizontal Bar Chart (Chart.js) -> Interaction: Hover tooltips, dynamically updates per plant -> Justification: Provides a quick visual summary of when the busiest periods are for the active plant. | Report Info: General care rules per plant -> Goal: Organize and Inform -> Presentation: Icon-driven cards (HTML/Tailwind) -> Interaction: Dynamically updates per plant -> Justification: Breaks up text, improves readability, and makes guidelines easy to scan for the active plant. | Report Info: Plant characteristics -> Goal: Inform -> Presentation: Detailed lists (HTML) -> Interaction: Dynamically updates per plant -> Justification: Provides quick access to essential plant facts for the active plant. | Report Info: Adding new plants -> Goal: Enable user input and AI data fetching -> Presentation: Modal form with loading indicator (HTML/JS) -> Interaction: User enters plant name, AI fetches and populates data, persists to Firestore. -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #FDFBF5;
+            color: #4A4A4A;
+        }
+        .tab-active {
+            background-color: #D9534F;
+            color: #FFFFFF;
+            font-weight: 600;
+        }
+        .tab-inactive {
+            background-color: #F0EAD6;
+            color: #705446;
+        }
+        .season-btn-active {
+            background-color: #5E8C61;
+            color: #FFFFFF;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .season-btn-inactive {
+            background-color: #E8F0E8;
+            color: #3B593C;
+        }
+        .content-section {
+            display: none;
+        }
+        .content-section.active {
+            display: block;
+        }
+        .chart-container {
+            position: relative;
+            margin: auto;
+            height: 250px;
+            width: 100%;
+            max-width: 800px;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.4);
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: auto;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            max-width: 500px;
+            width: 90%;
+            position: relative;
+        }
+        .close-button {
+            color: #aaa;
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close-button:hover,
+        .close-button:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #5E8C61;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <div class="container mx-auto p-4 sm:p-6 md:p-8 max-w-7xl">
+
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-[#D9534F]">Pacific Northwest Gardening Guide</h1>
+            <p class="text-lg text-gray-600 mt-2">Customized for Normandy Park, WA</p>
+        </header>
+
+        <div class="flex flex-col sm:flex-row justify-center items-center gap-4 mb-6">
+            <select id="plant-selector" class="p-3 rounded-lg border-2 border-gray-300 bg-white text-gray-700 shadow-sm focus:outline-none focus:border-[#5E8C61]">
+                <!-- Options will be dynamically populated -->
+            </select>
+            <button id="add-plant-btn" class="bg-[#5E8C61] text-white py-3 px-6 rounded-lg font-semibold shadow-md hover:bg-[#4A724D] transition-colors duration-300">Add New Plant</button>
+        </div>
+
+        <nav class="flex justify-center items-center mb-8 bg-[#F0EAD6] rounded-full p-1 max-w-lg mx-auto shadow-sm">
+            <button data-tab="seasonal" class="tab-btn flex-1 py-2 px-4 rounded-full text-sm sm:text-base transition-colors duration-300">Seasonal Tasks</button>
+            <button data-tab="care" class="tab-btn flex-1 py-2 px-4 rounded-full text-sm sm:text-base transition-colors duration-300">Care Essentials</button>
+            <button data-tab="overview" class="tab-btn flex-1 py-2 px-4 rounded-full text-sm sm:text-base transition-colors duration-300">Plant Overview</button>
+        </nav>
+
+        <main>
+            <section id="seasonal" class="content-section">
+                <div class="bg-white p-6 rounded-2xl shadow-lg">
+                    <div class="text-center mb-6">
+                        <h2 class="text-2xl font-bold text-[#5E8C61]" id="seasonal-title">Seasonal To-Do List</h2>
+                        <p class="mt-2 text-gray-600">This section provides a detailed checklist of tasks for your <span id="current-plant-seasonal" class="font-semibold"></span> throughout the year. Select a season to see what needs to be done to ensure a healthy and productive harvest.</p>
+                    </div>
+
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4 mb-8">
+                        <button data-season="Winter" class="season-btn w-full py-3 px-2 rounded-lg font-semibold transition-all duration-300 ease-in-out shadow-sm">❄️ Winter</button>
+                        <button data-season="Spring" class="season-btn w-full py-3 px-2 rounded-lg font-semibold transition-all duration-300 ease-in-out shadow-sm">🌱 Spring</button>
+                        <button data-season="Summer" class="season-btn w-full py-3 px-2 rounded-lg font-semibold transition-all duration-300 ease-in-out shadow-sm">☀️ Summer</button>
+                        <button data-season="Fall" class="season-btn w-full py-3 px-2 rounded-lg font-semibold transition-all duration-300 ease-in-out shadow-sm">🍂 Fall</button>
+                    </div>
+
+                    <div id="task-list" class="mb-8 space-y-3"></div>
+
+                    <div class="text-center mb-6">
+                         <h3 class="text-xl font-bold text-gray-700">Annual Effort Cycle</h3>
+                         <p class="mt-1 text-gray-600">This chart shows the estimated effort required throughout the year for the selected plant.</p>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="effortChart"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <section id="care" class="content-section">
+                 <div class="bg-white p-6 rounded-2xl shadow-lg">
+                    <div class="text-center mb-8">
+                        <h2 class="text-2xl font-bold text-[#5E8C61]" id="care-title">Care Essentials</h2>
+                        <p class="mt-2 text-gray-600">These are the fundamental requirements for healthy <span id="current-plant-care" class="font-semibold"></span> in Normandy Park. Following these guidelines will set your plants up for success.</p>
+                    </div>
+                    <div id="care-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+                </div>
+            </section>
+
+            <section id="overview" class="content-section">
+                 <div class="bg-white p-6 rounded-2xl shadow-lg">
+                     <div class="text-center mb-8">
+                        <h2 class="text-2xl font-bold text-[#5E8C61]" id="overview-title">Plant Overview</h2>
+                        <p class="mt-2 text-gray-600">Get to know the basics of <span id="current-plant-overview" class="font-semibold"></span>, from its botanical name to its growth habits. Understanding your plant is the first step to helping it thrive.</p>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div id="plant-type-info"></div>
+                        <div id="plant-characteristics-info"></div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Add New Plant Modal -->
+    <div id="add-plant-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" id="close-modal-btn">&times;</span>
+            <h2 class="text-2xl font-bold text-[#5E8C61] mb-4">Add New Plant</h2>
+            <p class="text-gray-600 mb-4">Enter the name of the plant you'd like to add. The guide will automatically fetch information for you.</p>
+            <input type="text" id="new-plant-name-input" placeholder="e.g., Blueberry, Rhubarb" class="w-full p-3 border border-gray-300 rounded-lg mb-4 focus:outline-none focus:border-[#5E8C61]">
+            <button id="submit-new-plant-btn" class="bg-[#D9534F] text-white py-3 px-6 rounded-lg font-semibold w-full shadow-md hover:bg-[#B5423E] transition-colors duration-300">Add Plant</button>
+            <div id="loading-indicator" class="text-center mt-4 hidden">
+                <div class="spinner"></div>
+                <p class="text-gray-600">Searching and adding plant data...</p>
+            </div>
+            <p id="modal-message" class="text-center mt-4 text-sm text-red-600 hidden"></p>
+        </div>
+    </div>
+
+    <script type="module">
+        // Import Firebase functions from the global window object
+        const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore, collection, onSnapshot, doc, setDoc } = window.firebase;
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+
+        let app, db, auth, userId;
+        let plantsCollectionRef;
+        let allPlantsData = {};
+        let currentPlantName = '';
+        let effortChartInstance = null;
+
+        const tabs = document.querySelectorAll('.tab-btn');
+        const sections = document.querySelectorAll('.content-section');
+        const seasonButtons = document.querySelectorAll('.season-btn');
+        const taskListContainer = document.getElementById('task-list');
+        const plantSelector = document.getElementById('plant-selector');
+        const addPlantBtn = document.getElementById('add-plant-btn');
+        const addPlantModal = document.getElementById('add-plant-modal');
+        const closeModalBtn = document.getElementById('close-modal-btn');
+        const newPlantNameInput = document.getElementById('new-plant-name-input');
+        const submitNewPlantBtn = document.getElementById('submit-new-plant-btn');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const modalMessage = document.getElementById('modal-message');
+
+        async function initFirebase() {
+            try {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                userId = auth.currentUser?.uid || crypto.randomUUID();
+                plantsCollectionRef = collection(db, `artifacts/${appId}/public/data/plants`);
+
+                onSnapshot(plantsCollectionRef, (snapshot) => {
+                    allPlantsData = {};
+                    snapshot.forEach(doc => {
+                        allPlantsData[doc.id] = doc.data();
+                    });
+                    populatePlantSelector();
+                    if (!allPlantsData[currentPlantName] && Object.keys(allPlantsData).length > 0) {
+                        currentPlantName = Object.keys(allPlantsData)[0];
+                    } else if (Object.keys(allPlantsData).length === 0) {
+                        currentPlantName = '';
+                    }
+                    if (currentPlantName) {
+                        loadPlantContent(currentPlantName);
+                    } else {
+                        clearPlantUI();
+                    }
+                }, (error) => {
+                    console.error("Error listening to plants collection:", error);
+                    modalMessage.textContent = "Error loading plant data.";
+                    modalMessage.classList.remove('hidden');
+                });
+
+            } catch (error) {
+                console.error("Error initializing Firebase:", error);
+                modalMessage.textContent = "Error initializing Firebase. Please try again.";
+                modalMessage.classList.remove('hidden');
+            }
+        }
+
+        function setupUI() {
+            setupTabs();
+            setupSeasons();
+            setupModal();
+            initFirebase();
+        }
+
+        function setupTabs() {
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    const target = tab.dataset.tab;
+                    tabs.forEach(t => t.classList.replace('tab-active', 'tab-inactive'));
+                    tab.classList.replace('tab-inactive', 'tab-active');
+                    sections.forEach(section => {
+                        if (section.id === target) {
+                            section.classList.add('active');
+                        } else {
+                            section.classList.remove('active');
+                        }
+                    });
+                });
+            });
+        }
+
+        function setupSeasons() {
+            seasonButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const season = button.dataset.season;
+                    if (plantData[currentPlantName]) {
+                        updateActiveSeason(season, plantData[currentPlantName].seasonalTasks);
+                    }
+                });
+            });
+        }
+
+        function setupModal() {
+            addPlantBtn.addEventListener('click', () => {
+                addPlantModal.style.display = 'flex';
+                newPlantNameInput.value = '';
+                modalMessage.classList.add('hidden');
+                loadingIndicator.classList.add('hidden');
+            });
+
+            closeModalBtn.addEventListener('click', () => {
+                addPlantModal.style.display = 'none';
+            });
+
+            window.addEventListener('click', (event) => {
+                if (event.target == addPlantModal) {
+                    addPlantModal.style.display = 'none';
+                }
+            });
+
+            submitNewPlantBtn.addEventListener('click', async () => {
+                const plantName = newPlantNameInput.value.trim();
+                if (!plantName) {
+                    modalMessage.textContent = "Please enter a plant name.";
+                    modalMessage.classList.remove('hidden');
+                    return;
+                }
+                if (allPlantsData[plantName]) {
+                    modalMessage.textContent = `${plantName} already exists in your guide.`;
+                    modalMessage.classList.remove('hidden');
+                    return;
+                }
+
+                loadingIndicator.classList.remove('hidden');
+                modalMessage.classList.add('hidden');
+                submitNewPlantBtn.disabled = true;
+
+                try {
+                    const newPlantData = await fetchPlantInfoFromAI(plantName);
+                    await setDoc(doc(plantsCollectionRef, plantName), newPlantData);
+                    modalMessage.textContent = `${plantName} added successfully!`;
+                    modalMessage.classList.remove('hidden');
+                    newPlantNameInput.value = '';
+                    setTimeout(() => {
+                        addPlantModal.style.display = 'none';
+                    }, 1500);
+                } catch (error) {
+                    console.error("Error adding new plant:", error);
+                    modalMessage.textContent = `Failed to add plant: ${error.message}. Please try again.`;
+                    modalMessage.classList.remove('hidden');
+                } finally {
+                    loadingIndicator.classList.add('hidden');
+                    submitNewPlantBtn.disabled = false;
+                }
+            });
+        }
+
+        async function fetchPlantInfoFromAI(plantName) {
+            const prompt = `Provide detailed gardening information for a ${plantName} plant, specifically tailored for the Pacific Northwest (PNW) climate (e.g., Normandy Park, WA). Include:
+            1. Botanical Name, Family, Type (e.g., Perennial, Annual), and common PNW varieties.
+            2. Overall characteristics: foliage, flowers, fruit description, growth habit (e.g., upright, vining), pollination, typical lifespan.
+            3. General care essentials: ideal sunlight, soil pH/type, watering needs, fertilization (NPK, frequency), mulching recommendations, common PNW pests and diseases.
+            4. Seasonal tasks for Winter (Dec-Feb), Spring (Mar-May), Summer (Jun-Aug), and Fall (Sep-Nov). For each season, list 3-5 key tasks.
+            5. An estimated relative effort level for each season on a scale of 1-10 (1 being very low, 10 being very high). Provide this as a simple array: [Winter_Effort, Spring_Effort, Summer_Effort, Fall_Effort].
+
+            Format the response as a JSON object matching this schema:
+            {
+              "typeInfo": {
+                "title": "Plant Type",
+                "items": [
+                  {"label": "Botanical Name", "value": ""},
+                  {"label": "Family", "value": ""},
+                  {"label": "Type", "value": ""},
+                  {"label": "Common PNW Varieties", "value": ""}
+                ]
+              },
+              "characteristicsInfo": {
+                "title": "Overall Characteristics",
+                "items": [
+                  {"label": "Foliage", "value": ""},
+                  {"label": "Flowers", "value": ""},
+                  {"label": "Fruit", "value": ""},
+                  {"label": "Growth Habit", "value": ""},
+                  {"label": "Pollination", "value": ""},
+                  {"label": "Lifespan", "value": ""}
+                ]
+              },
+              "careEssentials": [
+                {"icon": "☀️", "title": "Sunlight", "text": ""},
+                {"icon": "🌱", "title": "Soil", "text": ""},
+                {"icon": "💧", "title": "Watering", "text": ""},
+                {"icon": "🌿", "title": "Fertilization", "text": ""},
+                {"icon": "🍂", "title": "Mulching", "text": ""},
+                {"icon": "🐞", "title": "Pest & Disease", "text": ""}
+              ],
+              "seasonalTasks": {
+                "Winter": [],
+                "Spring": [],
+                "Summer": [],
+                "Fall": []
+              },
+              "effortData": []
+            }`;
+
+            try {
+                const chatHistory = [];
+                chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+                const payload = {
+                    contents: chatHistory,
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                        responseSchema: {
+                            type: "OBJECT",
+                            properties: {
+                                "typeInfo": {
+                                    "type": "OBJECT",
+                                    "properties": {
+                                        "title": { "type": "STRING" },
+                                        "items": {
+                                            "type": "ARRAY",
+                                            "items": {
+                                                "type": "OBJECT",
+                                                "properties": {
+                                                    "label": { "type": "STRING" },
+                                                    "value": { "type": "STRING" }
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "characteristicsInfo": {
+                                    "type": "OBJECT",
+                                    "properties": {
+                                        "title": { "type": "STRING" },
+                                        "items": {
+                                            "type": "ARRAY",
+                                            "items": {
+                                                "type": "OBJECT",
+                                                "properties": {
+                                                    "label": { "type": "STRING" },
+                                                    "value": { "type": "STRING" }
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "careEssentials": {
+                                    "type": "ARRAY",
+                                    "items": {
+                                        "type": "OBJECT",
+                                        "properties": {
+                                            "icon": { "type": "STRING" },
+                                            "title": { "type": "STRING" },
+                                            "text": { "type": "STRING" }
+                                        }
+                                    }
+                                },
+                                "seasonalTasks": {
+                                    "type": "OBJECT",
+                                    "properties": {
+                                        "Winter": {
+                                            "type": "ARRAY",
+                                            "items": {
+                                                "type": "OBJECT",
+                                                "properties": {
+                                                    "task": { "type": "STRING" },
+                                                    "detail": { "type": "STRING" }
+                                                }
+                                            }
+                                        },
+                                        "Spring": {
+                                            "type": "ARRAY",
+                                            "items": {
+                                                "type": "OBJECT",
+                                                "properties": {
+                                                    "task": { "type": "STRING" },
+                                                    "detail": { "type": "STRING" }
+                                                }
+                                            }
+                                        },
+                                        "Summer": {
+                                            "type": "ARRAY",
+                                            "items": {
+                                                "type": "OBJECT",
+                                                "properties": {
+                                                    "task": { "type": "STRING" },
+                                                    "detail": { "type": "STRING" }
+                                                }
+                                            }
+                                        },
+                                        "Fall": {
+                                            "type": "ARRAY",
+                                            "items": {
+                                                "type": "OBJECT",
+                                                "properties": {
+                                                    "task": { "type": "STRING" },
+                                                    "detail": { "type": "STRING" }
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "effortData": {
+                                    "type": "ARRAY",
+                                    "items": { "type": "NUMBER" }
+                                }
+                            }
+                        }
+                    }
+                };
+                const apiKey = "";
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+
+                if (result.candidates && result.candidates.length > 0 &&
+                    result.candidates[0].content && result.candidates[0].content.parts &&
+                    result.candidates[0].content.parts.length > 0) {
+                    const jsonString = result.candidates[0].content.parts[0].text;
+                    const parsedData = JSON.parse(jsonString);
+                    return parsedData;
+                } else {
+                    throw new Error("No valid content received from AI.");
+                }
+            } catch (error) {
+                console.error("AI fetch error:", error);
+                throw new Error("Could not fetch plant information. Please try a different plant name or check your network.");
+            }
+        }
+
+
+        function populatePlantSelector() {
+            plantSelector.innerHTML = '';
+            const plantNames = Object.keys(allPlantsData).sort();
+            if (plantNames.length === 0) {
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = 'No plants added yet';
+                plantSelector.appendChild(option);
+                plantSelector.disabled = true;
+            } else {
+                plantSelector.disabled = false;
+                plantNames.forEach(plantName => {
+                    const option = document.createElement('option');
+                    option.value = plantName;
+                    option.textContent = plantName;
+                    plantSelector.appendChild(option);
+                });
+                plantSelector.value = currentPlantName;
+            }
+        }
+
+        function loadPlantContent(plantName) {
+            const plant = allPlantsData[plantName];
+            if (!plant) {
+                clearPlantUI();
+                return;
+            }
+
+            document.getElementById('current-plant-seasonal').textContent = plantName;
+            document.getElementById('current-plant-care').textContent = plantName;
+            document.getElementById('current-plant-overview').textContent = plantName;
+
+            populateOverview(plant.typeInfo, plant.characteristicsInfo);
+            populateCareGrid(plant.careEssentials);
+            updateEffortChart(plant.effortData);
+
+            const currentMonth = new Date().getMonth();
+            let currentSeason;
+            if (currentMonth >= 2 && currentMonth <= 4) currentSeason = 'Spring';
+            else if (currentMonth >= 5 && currentMonth <= 7) currentSeason = 'Summer';
+            else if (currentMonth >= 8 && currentMonth <= 10) currentSeason = 'Fall';
+            else currentSeason = 'Winter';
+            updateActiveSeason(currentSeason, plant.seasonalTasks);
+
+            document.querySelector(`.tab-btn[data-tab="seasonal"]`).click();
+        }
+
+        function clearPlantUI() {
+            document.getElementById('current-plant-seasonal').textContent = 'a plant';
+            document.getElementById('current-plant-care').textContent = 'a plant';
+            document.getElementById('current-plant-overview').textContent = 'a plant';
+            document.getElementById('task-list').innerHTML = '<p class="text-center text-gray-500">No tasks available. Add a plant to get started!</p>';
+            document.getElementById('care-grid').innerHTML = '<p class="text-center text-gray-500 col-span-full">No care essentials available. Add a plant to get started!</p>';
+            document.getElementById('plant-type-info').innerHTML = '<p class="text-gray-500">No plant type information available.</p>';
+            document.getElementById('plant-characteristics-info').innerHTML = '<p class="text-gray-500">No plant characteristics available.</p>';
+            updateEffortChart([0,0,0,0]); // Clear chart
+        }
+
+        function updateActiveSeason(season, seasonalTasks) {
+            seasonButtons.forEach(btn => {
+                if (btn.dataset.season === season) {
+                    btn.classList.add('season-btn-active');
+                    btn.classList.remove('season-btn-inactive');
+                } else {
+                    btn.classList.remove('season-btn-active');
+                    btn.classList.add('season-btn-inactive');
+                }
+            });
+            populateTasks(season, seasonalTasks);
+        }
+
+        function populateTasks(season, seasonalTasks) {
+            const tasks = seasonalTasks[season];
+            if (!tasks || tasks.length === 0) {
+                taskListContainer.innerHTML = `<p class="text-center text-gray-500">No specific tasks listed for ${season} for this plant.</p>`;
+                return;
+            }
+            taskListContainer.innerHTML = tasks.map(item => `
+                <div class="p-4 rounded-lg bg-gray-50 border border-gray-200">
+                    <p class="font-semibold text-gray-800">${item.task}</p>
+                    <p class="text-gray-600 text-sm mt-1">${item.detail}</p>
+                </div>
+            `).join('');
+        }
+        
+        function populateCareGrid(careEssentials) {
+            const careGrid = document.getElementById('care-grid');
+            if (!careEssentials || careEssentials.length === 0) {
+                careGrid.innerHTML = '<p class="text-center text-gray-500 col-span-full">No care essentials available for this plant.</p>';
+                return;
+            }
+            careGrid.innerHTML = careEssentials.map(item => `
+                <div class="bg-gray-50 p-6 rounded-xl border border-gray-200 hover:shadow-md transition-shadow duration-300">
+                    <div class="text-3xl mb-3">${item.icon}</div>
+                    <h3 class="font-bold text-xl mb-2 text-gray-800">${item.title}</h3>
+                    <p class="text-gray-600">${item.text}</p>
+                </div>
+            `).join('');
+        }
+
+        function populateOverview(typeInfo, characteristicsInfo) {
+            const typeContainer = document.getElementById('plant-type-info');
+            const charContainer = document.getElementById('plant-characteristics-info');
+
+            const createInfoList = (data) => {
+                if (!data || !data.items || data.items.length === 0) {
+                    return `<h3 class="text-xl font-bold mb-4 text-gray-800">${data.title || 'Information'}</h3><p class="text-gray-500">No information available.</p>`;
+                }
+                return `
+                    <h3 class="text-xl font-bold mb-4 text-gray-800">${data.title}</h3>
+                    <ul class="space-y-3">
+                        ${data.items.map(item => `
+                            <li class="border-b border-gray-200 pb-2">
+                                <span class="font-semibold text-gray-700">${item.label}:</span>
+                                <span class="text-gray-600 ml-2">${item.value}</span>
+                            </li>
+                        `).join('')}
+                    </ul>`;
+            };
+
+            typeContainer.innerHTML = createInfoList(typeInfo);
+            charContainer.innerHTML = createInfoList(characteristicsInfo);
+        }
+
+        function updateEffortChart(effortData) {
+            const ctx = document.getElementById('effortChart').getContext('2d');
+            if (effortChartInstance) {
+                effortChartInstance.destroy();
+            }
+            effortChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['Winter', 'Spring', 'Summer', 'Fall'],
+                    datasets: [{
+                        label: 'Estimated Effort',
+                        data: effortData,
+                        backgroundColor: [
+                            'rgba(173, 216, 230, 0.6)',
+                            'rgba(144, 238, 144, 0.6)',
+                            'rgba(255, 99, 132, 0.6)',
+                            'rgba(255, 165, 0, 0.6)'
+                        ],
+                        borderColor: [
+                            'rgba(173, 216, 230, 1)',
+                            'rgba(144, 238, 144, 1)',
+                            'rgba(255, 99, 132, 1)',
+                            'rgba(255, 165, 0, 1)'
+                        ],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    if (context.parsed.x !== null) {
+                                        label += context.parsed.x;
+                                    }
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Relative Effort Level'
+                            },
+                            max: 10
+                        }
+                    }
+                }
+            });
+        }
+
+        setupUI();
+    </script>
+    <script type="module">
+  // Import the functions you need from the SDKs you need
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+  import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-analytics.js";
+  // TODO: Add SDKs for Firebase products that you want to use
+  // https://firebase.google.com/docs/web/setup#available-libraries
+
+  // Your web app's Firebase configuration
+  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+  const firebaseConfig = {
+    apiKey: "AIzaSyAty1H6d5P4YLWGdRtH6T4vcM6uYlm2Q2s",
+    authDomain: "garden-assistant-a6fef.firebaseapp.com",
+    projectId: "garden-assistant-a6fef",
+    storageBucket: "garden-assistant-a6fef.firebasestorage.app",
+    messagingSenderId: "667107830051",
+    appId: "1:667107830051:web:156ee2c2e85138cda20496",
+    measurementId: "G-WMR3HXGGE7"
+  };
+
+  // Initialize Firebase
+  const app = initializeApp(firebaseConfig);
+  const analytics = getAnalytics(app);
+</script>
+</body>
+</html>
